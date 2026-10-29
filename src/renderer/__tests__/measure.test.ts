@@ -10,6 +10,7 @@ import {
   Annotation as VFAnnotation,
   Articulation as VFArticulation,
   Element,
+  Formatter,
   Stave,
 } from 'vexflow';
 
@@ -167,15 +168,19 @@ describe('measureScore', () => {
 
   it('adds the time signature to measurement staves when showMeter is set', () => {
     const addTimeSignatureSpy = jest.spyOn(Stave.prototype, 'addTimeSignature');
+    const formatToStaveSpy = jest.spyOn(Formatter.prototype, 'formatToStave');
     const score = makeSingleStaffScore({ showMeter: true });
 
     const measuredScore = measureScore(score, TEST_OPTIONS);
 
     expect(measuredScore.measures).toHaveLength(1);
-    // Once on the left-modifier width probe stave, once on the
-    // vertical-bounds stave.
-    expect(addTimeSignatureSpy).toHaveBeenCalledTimes(2);
-    expect(addTimeSignatureSpy).toHaveBeenCalledWith('4/4');
+    expect(formatToStaveSpy).toHaveBeenCalledTimes(1);
+    const measuredStave = formatToStaveSpy.mock.calls[0]![1];
+    expect(
+      addTimeSignatureSpy.mock.calls.filter(
+        (_, call) => addTimeSignatureSpy.mock.contexts[call] === measuredStave
+      )
+    ).toEqual([['4/4']]);
   });
 
   it('keeps measurement output unchanged when showMeter is absent', () => {
@@ -194,9 +199,13 @@ describe('measureScore', () => {
   it('skips the first measure clef when showClef is false', () => {
     const addClefSpy = jest.spyOn(Stave.prototype, 'addClef');
 
+    const formatToStaveSpy = jest.spyOn(Formatter.prototype, 'formatToStave');
+
     measureScore(makeSingleStaffScore({ showClef: false }), TEST_OPTIONS);
 
-    expect(addClefSpy).not.toHaveBeenCalled();
+    expect(formatToStaveSpy).toHaveBeenCalledTimes(1);
+    const measuredStave = formatToStaveSpy.mock.calls[0]![1];
+    expect(addClefSpy.mock.contexts).not.toContain(measuredStave);
   });
 
   it('keeps the staff bounds of a one-line staff equal to the five-line ones', () => {

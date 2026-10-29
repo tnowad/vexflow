@@ -856,7 +856,11 @@ describe('renderScore', () => {
     );
 
     expect(mockStaveAddClef).toHaveBeenCalledTimes(1);
-    expect(mockStaveAddClef).toHaveBeenCalledWith('treble');
+    expect(mockStaveAddClef).toHaveBeenCalledWith(
+      'treble',
+      undefined,
+      undefined
+    );
 
     mockStaveAddClef.mockClear();
     const hidden = makeShowMeterFixture({ showClef: false });
