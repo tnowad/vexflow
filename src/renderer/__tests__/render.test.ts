@@ -131,6 +131,8 @@ const mockMakeVFVoice = jest.fn(
 );
 
 jest.mock('vexflow', () => ({
+  Annotation: class MockAnnotation {},
+  Barline: class MockBarline {},
   BarlineType: { SINGLE: 1, DOUBLE: 2, END: 3, REPEAT_BEGIN: 4, REPEAT_END: 5 },
   Formatter: class MockFormatter {
     joinVoices = mockFormatterJoinVoices;
@@ -167,6 +169,7 @@ jest.mock('vexflow', () => ({
     getBottomLineBottomY = () => this.getTopLineTopY() + MOCK_STAVE_LINE_SPAN;
     getYForLine = (line: number) =>
       this.getTopLineTopY() + line * MOCK_STAVE_LINE_GAP;
+    getYForTopText = (line: number) => this.getYForLine(-line - 1);
   },
   Parenthesis: class MockParenthesis {
     static CATEGORY = 'Parenthesis';
@@ -193,6 +196,7 @@ jest.mock('vexflow', () => ({
     draw = mockStaveConnectorDraw.mockReturnThis();
   },
   Voice: class MockVoice {},
+  VoltaType: { NONE: 1, BEGIN: 2, MID: 3, END: 4, BEGIN_END: 5 },
 }));
 
 const mockBeamSetContext = jest.fn();
@@ -220,12 +224,14 @@ import { BarlineType } from 'vexflow';
 import { renderScore } from '../render';
 import type { Measure, Score, StaffLines } from '../../state';
 import type { ScoreLayoutPlan } from '../layout';
-import { insets, renderOptions, spacing } from '../constants';
+import { insets, renderOptions, spacing, textOptions } from '../constants';
 
 const TEST_OPTIONS = {
   insets: { ...insets },
   spacing: { ...spacing },
   render: { ...renderOptions },
+  layout: {},
+  text: { ...textOptions },
 };
 const SINGLE_STAFF_BOUNDS = [{ top: 40, bottom: 80 }];
 const TWO_STAFF_BOUNDS = [
@@ -287,6 +293,7 @@ describe('renderScore', () => {
           width: 152,
           height: 135,
           staffYOffsets: [0],
+          staffLyrics: [undefined],
           systemIndex: 0,
         },
       ],
@@ -303,6 +310,7 @@ describe('renderScore', () => {
               groupId: 'staff:staff-1',
               measureIndex: 0,
               intrinsicWidth: 152,
+              systemStartWidth: 0,
               measureNumbers: [1],
               staffBounds: SINGLE_STAFF_BOUNDS,
             },
@@ -373,6 +381,7 @@ describe('renderScore', () => {
           width: 152,
           height: 135,
           staffYOffsets: [0],
+          staffLyrics: [undefined],
           systemIndex: 0,
         },
       ],
@@ -389,6 +398,7 @@ describe('renderScore', () => {
               groupId: 'staff:staff-1',
               measureIndex: 0,
               intrinsicWidth: 152,
+              systemStartWidth: 0,
               measureNumbers: [1],
               staffBounds: SINGLE_STAFF_BOUNDS,
             },
@@ -461,6 +471,7 @@ describe('renderScore', () => {
           width: 152,
           height: 135,
           staffYOffsets: [0],
+          staffLyrics: [undefined],
           systemIndex: 0,
         },
       ],
@@ -477,6 +488,7 @@ describe('renderScore', () => {
               groupId: 'staff:staff-1',
               measureIndex: 0,
               intrinsicWidth: 152,
+              systemStartWidth: 0,
               measureNumbers: [1],
               staffBounds: SINGLE_STAFF_BOUNDS,
             },
@@ -583,6 +595,7 @@ describe('renderScore', () => {
           width: 152,
           height: 135,
           staffYOffsets: [0, 120],
+          staffLyrics: [undefined, undefined],
           systemIndex: 0,
         },
       ],
@@ -600,6 +613,7 @@ describe('renderScore', () => {
               groupId: 'piano',
               measureIndex: 0,
               intrinsicWidth: 152,
+              systemStartWidth: 0,
               measureNumbers: [1, 1],
               staffBounds: TWO_STAFF_BOUNDS,
             },
@@ -721,6 +735,7 @@ describe('renderScore', () => {
           width: 152,
           height: 135,
           staffYOffsets: [0],
+          staffLyrics: [undefined],
           systemIndex: 0,
         },
       ],
@@ -738,6 +753,7 @@ describe('renderScore', () => {
               groupId: 'solo-group',
               measureIndex: 0,
               intrinsicWidth: 152,
+              systemStartWidth: 0,
               measureNumbers: [1],
               staffBounds: SINGLE_STAFF_BOUNDS,
             },
@@ -940,6 +956,7 @@ describe('renderScore', () => {
             width: 345,
             height: 68,
             staffYOffsets: [0],
+            staffLyrics: [undefined],
             systemIndex: 0,
           },
         ],
@@ -956,6 +973,7 @@ describe('renderScore', () => {
                 groupId: 'staff:staff-1',
                 measureIndex: 0,
                 intrinsicWidth: 345,
+                systemStartWidth: 0,
                 measureNumbers: [1],
                 staffBounds: SINGLE_STAFF_BOUNDS,
               },
@@ -1243,6 +1261,7 @@ describe('renderScore', () => {
             width: 152,
             height: 135,
             staffYOffsets: [0, 120],
+            staffLyrics: [undefined, undefined],
             systemIndex: 0,
           },
         ],
@@ -1261,6 +1280,7 @@ describe('renderScore', () => {
                 groupId: 'piano',
                 measureIndex: 0,
                 intrinsicWidth: 152,
+                systemStartWidth: 0,
                 measureNumbers: [1, 1],
                 staffBounds: TWO_STAFF_BOUNDS,
               },
@@ -1424,6 +1444,7 @@ function makeShowMeterFixture(
         width: 152,
         height: 135,
         staffYOffsets: [0],
+        staffLyrics: [undefined],
         systemIndex: 0,
       },
     ],
@@ -1438,6 +1459,7 @@ function makeShowMeterFixture(
             groupId: 'staff:staff-1',
             measureIndex: 0,
             intrinsicWidth: 152,
+            systemStartWidth: 0,
             measureNumbers: [1],
             staffBounds: SINGLE_STAFF_BOUNDS,
           },
@@ -1520,6 +1542,7 @@ function makeConnectorLayoutPlan(
       width: 136,
       height: 135,
       staffYOffsets: [0, 120],
+      staffLyrics: [undefined, undefined],
       systemIndex: 0,
     })),
     groups: [
@@ -1542,6 +1565,7 @@ function makeConnectorLayoutPlan(
           groupId: 'piano',
           measureIndex,
           intrinsicWidth: 136,
+          systemStartWidth: 0,
           measureNumbers: [measureIndex + 1, measureIndex + 1],
           staffBounds: TWO_STAFF_BOUNDS,
         })),

@@ -33,7 +33,7 @@ import type {
   VoiceItem,
 } from '../../state';
 import { ONE_LINE_STAFF_PITCH } from '../../state';
-import { insets, renderOptions, spacing } from '../constants';
+import { insets, renderOptions, spacing, textOptions } from '../constants';
 import { layoutScore } from '../layout';
 import { measureScore } from '../measure';
 import { renderScore } from '../render';
@@ -45,6 +45,8 @@ const TEST_OPTIONS = {
   insets: { ...insets },
   spacing: { ...spacing },
   render: { ...renderOptions },
+  layout: {},
+  text: { ...textOptions },
 };
 
 const q: DurationValue = { length: 'q' };

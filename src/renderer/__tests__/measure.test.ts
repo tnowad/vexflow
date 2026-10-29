@@ -25,7 +25,7 @@ import type {
   VoiceItem,
 } from '../../state';
 import { ONE_LINE_STAFF_PITCH } from '../../state';
-import { insets, renderOptions, spacing } from '../constants';
+import { insets, renderOptions, spacing, textOptions } from '../constants';
 import { measureScore } from '../measure';
 import { applyStaffLines } from '../stave';
 import type { ScoreOptions } from '../types';
@@ -36,6 +36,8 @@ const TEST_OPTIONS: ScoreOptions = {
   insets: { ...insets },
   spacing: { ...spacing },
   render: { ...renderOptions },
+  layout: {},
+  text: { ...textOptions },
 };
 
 const COMPOUND_METER: Meter = {

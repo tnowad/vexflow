@@ -103,10 +103,12 @@ function loadScoreRendererModule() {
 
   const mockPanGesture = {
     enabled: jest.fn(() => mockPanGesture),
+    maxPointers: jest.fn(() => mockPanGesture),
     minDistance: jest.fn(() => mockPanGesture),
     onEnd: jest.fn(() => mockPanGesture),
     onStart: jest.fn(() => mockPanGesture),
     onUpdate: jest.fn(() => mockPanGesture),
+    simultaneousWithExternalGesture: jest.fn(() => mockPanGesture),
   };
 
   jest.doMock('react-native-gesture-handler', () => ({

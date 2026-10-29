@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import type { Meter, Score, Step, VoiceItem } from '../../state';
-import { insets, renderOptions, spacing } from '../constants';
+import { insets, renderOptions, spacing, textOptions } from '../constants';
 import { layoutScore, layoutUsesViewportHeight } from '../layout';
 import { measureScore } from '../measure';
 import type { ScoreOptions } from '../types';
@@ -11,6 +11,8 @@ const TEST_OPTIONS: ScoreOptions = {
   insets: { ...insets },
   spacing: { ...spacing },
   render: { ...renderOptions },
+  layout: {},
+  text: { ...textOptions },
 };
 
 const DEFAULT_METER: Meter = {

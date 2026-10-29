@@ -175,7 +175,10 @@ describe('applyMeasureDirections', () => {
     applyNoteModifiers(first, 'treble', [
       attachment({ type: 'annotation', text: 'R' }),
     ]);
-    applyMeasureDirections([spacer, first, second], DIRECTIONS);
+    applyMeasureDirections(
+      [{ notes: [spacer, first, second], noteStarts: [0, 4096, 8192] }],
+      DIRECTIONS
+    );
 
     expect(spacer.getModifiers()).toHaveLength(0);
     expect(second.getModifiers()).toHaveLength(0);
@@ -195,7 +198,10 @@ describe('applyMeasureDirections', () => {
   it('draws nothing when the voice has no drawn item', () => {
     const spacers = [new GhostNote('h'), new GhostNote('h')];
 
-    applyMeasureDirections(spacers, DIRECTIONS);
+    applyMeasureDirections(
+      [{ notes: spacers, noteStarts: [0, 8192] }],
+      DIRECTIONS
+    );
 
     expect(spacers.flatMap((spacer) => spacer.getModifiers())).toHaveLength(0);
   });

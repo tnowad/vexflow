@@ -21,7 +21,7 @@ import { Element } from 'vexflow';
 import VexflowRecordingContext from '../../base/VexflowRecordingContext';
 import type { VexflowRecordingCommand } from '../../base/VexflowRecordingTypes';
 import type { Score, VoiceItem } from '../../state';
-import { insets, renderOptions, spacing } from '../constants';
+import { insets, renderOptions, spacing, textOptions } from '../constants';
 import { layoutScore } from '../layout';
 import { measureScore } from '../measure';
 import { renderScore } from '../render';
@@ -32,6 +32,8 @@ const TEST_OPTIONS = {
   insets: { ...insets },
   spacing: { ...spacing },
   render: { ...renderOptions },
+  layout: {},
+  text: { ...textOptions },
 };
 
 const note = (id: string, length: '8' | 'q'): VoiceItem => ({

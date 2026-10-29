@@ -107,7 +107,7 @@ describe('applyMeasureModifiers', () => {
       showMeter: true,
     });
 
-    expect(spies.addClef).toHaveBeenCalledWith('treble');
+    expect(spies.addClef).toHaveBeenCalledWith('treble', undefined, undefined);
     expect(spies.addKeySignature).toHaveBeenCalledWith('D');
     expect(spies.addTimeSignature).toHaveBeenCalledWith('3/4');
   });
