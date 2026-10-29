@@ -41,6 +41,7 @@ const ScoreRenderer: React.FC<ScoreRendererProps> = ({
   onDrawItem,
   options: userOptions = EMPTY_OPTIONS,
   scrollEnabled = true,
+  simultaneousGestures,
   showScrollbars = true,
   scrollOffset: externalScrollOffset,
   playhead,
@@ -139,6 +140,7 @@ const ScoreRenderer: React.FC<ScoreRendererProps> = ({
     externalScrollOffset,
     rendererType: effectiveRendererType,
     scrollEnabled,
+    simultaneousGestures,
     viewportSize,
   });
 

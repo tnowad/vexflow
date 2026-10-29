@@ -1,5 +1,6 @@
 import type { SkTypefaceFontProvider } from 'react-native-skia';
 import type { SharedValue } from 'react-native-reanimated';
+import type { GestureType } from 'react-native-gesture-handler';
 import type { RenderContext, StaveNote } from 'vexflow';
 
 import type { VexflowStyleOverride } from '../base';
@@ -98,6 +99,14 @@ export interface ScoreRendererProps extends ScoreItemHooks {
   rendererType?: RendererType;
   options?: ScoreRendererOptions;
   scrollEnabled?: boolean;
+  /**
+   * Gestures in an enclosing `GestureDetector` that the scroll pan runs
+   * alongside (`simultaneousWithExternalGesture`), e.g. a pinch: the pan's
+   * activation then does not cancel them. The pan follows one finger only
+   * and is cancelled when a second one lands. Keep the array referentially
+   * stable; a new one rebuilds the pan.
+   */
+  simultaneousGestures?: readonly GestureType[];
   showScrollbars?: boolean;
   /**
    * Controlled scroll offset along the renderer's {@link ScrollAxis}. When
