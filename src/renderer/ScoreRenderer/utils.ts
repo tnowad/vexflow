@@ -9,7 +9,7 @@ import type { SharedValue } from 'react-native-reanimated';
 import FontManager from '../../base/FontManager';
 import { renderVexflowRecordingCommands } from '../../base/VexflowRecordingReplay';
 import { isVexflowNativeDebugEnabled } from '../../shared/debug';
-import { insets, renderOptions, spacing } from '../constants';
+import { insets, renderOptions, spacing, textOptions } from '../constants';
 import type {
   RendererSize,
   RendererType,
@@ -49,6 +49,8 @@ export function withDefaultOptions(
     insets: { ...insets, ...(options.insets || {}) },
     spacing: { ...spacing, ...(options.spacing || {}) },
     render: { ...renderOptions, ...(options.render || {}) },
+    layout: { ...(options.layout || {}) },
+    text: { ...textOptions, ...(options.text || {}) },
   };
 }
 
