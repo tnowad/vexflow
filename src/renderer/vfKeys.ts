@@ -18,11 +18,14 @@ const NOTEHEAD_TO_VF_CODE: Record<Notehead, string> = {
  * Converts an internal pitch into the VexFlow key string format.
  */
 export function pitchToVFKey(pitch: Pitch): string {
+  // VexFlow keys stop at double accidentals; a triple one only moves the glyph, not the line.
   const accidental =
     pitch.accidental === 'quarter-flat'
       ? 'db'
       : pitch.accidental === 'quarter-sharp'
       ? 'd#'
+      : pitch.accidental === '###' || pitch.accidental === 'bbb'
+      ? ''
       : pitch.accidental ?? '';
 
   const key = `${pitch.step.toLowerCase()}${accidental}/${pitch.octave}`;

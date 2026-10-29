@@ -14,15 +14,19 @@ import {
   resolveGroupStaves,
 } from './scoreParsing';
 import {
+  aboveStaffMarksHeight,
   applyMeasureModifiers,
+  resolveAboveStaffMarks,
   resolveMeasureModifiers,
+  withSystemStartModifiers,
 } from './measureModifiers';
 import { mergeNoteBounds, mergeY } from './measureBounds';
+import { applyMeasureDirections, compareVerses, Lyric } from './noteModifiers';
 import { applyStaffLines } from './stave';
-import type { ScoreItemHooks, ScoreOptions } from './types';
+import type { ScoreItemHooks, ScoreOptions, ScoreTextOptions } from './types';
 import type { StaffVerticalBounds } from './measureBounds';
 import type { ResolvedMeasureModifiers } from './measureModifiers';
-import type { ResolvedMeasureState } from './scoreParsing';
+import type { ResolvedMeasureState, VFVoiceNote } from './scoreParsing';
 import {
   VEXFLOW_STAVE_BOTTOM_LINE_OFFSET,
   VEXFLOW_STAVE_TOP_LINE_OFFSET,
@@ -35,6 +39,8 @@ export interface MeasuredMeasure {
   staffIds: string[];
   staffBounds: StaffVerticalBounds[];
   intrinsicNoteWidth: number;
+  /** Extra width when the measure starts a 'document' system (clef and key signature). */
+  systemStartWidth: number;
 }
 
 export interface MeasuredScore {
@@ -103,11 +109,10 @@ export function measureScore(
             resolvedStatesByStaff[staffIndex]![measureIndex]!;
           measureNumbers.push(measure.number);
 
-          const voiceArtifacts = measure.voices.map((voice, voiceIndex) =>
+          const voiceArtifacts = measure.voices.map((voice) =>
             makeVFVoice(score, resolvedState.meter, resolvedState.clef, voice, {
               attachmentsByOwner,
               staff,
-              directions: voiceIndex === 0 ? measure.directions : undefined,
               itemContext: decorateItem
                 ? { decorateItem, staff, measureIndex }
                 : undefined,
@@ -116,8 +121,17 @@ export function measureScore(
                   ? resolvedStateByStaffId.get(item.targetStaffId)?.clef ??
                     resolvedState.clef
                   : resolvedState.clef,
+              resolveOctaveShift: (item) =>
+                (item.targetStaffId
+                  ? resolvedStateByStaffId.get(item.targetStaffId) ??
+                    resolvedState
+                  : resolvedState
+                ).clefOctaveChange,
+              lyrics: options.text,
             })
           );
+          // Before joinVoices, which collects the notes' modifiers.
+          applyMeasureDirections(voiceArtifacts, measure.directions);
           const vfVoices = voiceArtifacts.map(({ vfVoice }) => vfVoice);
 
           formatter.joinVoices(vfVoices);
@@ -139,14 +153,27 @@ export function measureScore(
         // Clef and time signature sit before the note area, so the intrinsic
         // width must include them or an empty measure with a time signature
         // measures ~0 wide and the signature clips.
+        const leftModifierWidth = measureLeftModifierWidth(
+          staffMeasurementContexts
+        );
         const intrinsicNoteWidth =
           (allVoices.length > 0
             ? formatter.preCalculateMinTotalWidth(allVoices) *
               Math.max(1, minIntrinsicSizeMultiplier)
-            : 0) + measureLeftModifierWidth(staffMeasurementContexts);
+            : 0) + leftModifierWidth;
+        // Extra width this measure needs when it starts a 'document' system,
+        // where the clef and key signature are always drawn.
+        const systemStartWidth =
+          measureLeftModifierWidth(
+            staffMeasurementContexts.map((context) => ({
+              ...context,
+              modifiers: withSystemStartModifiers(context.modifiers),
+            }))
+          ) - leftModifierWidth;
         const staffBounds = measureStaffVerticalBounds({
           allVoices,
           intrinsicNoteWidth,
+          text: options.text,
           staves,
           staffMeasurementContexts,
         });
@@ -158,6 +185,7 @@ export function measureScore(
           staffIds: group.staffIds,
           staffBounds,
           intrinsicNoteWidth,
+          systemStartWidth,
         });
       } catch (error) {
         throw new Error(
@@ -220,11 +248,13 @@ function measureLeftModifierWidth(
 function measureStaffVerticalBounds({
   allVoices,
   intrinsicNoteWidth,
+  text,
   staves,
   staffMeasurementContexts,
 }: {
   allVoices: VFVoice[];
   intrinsicNoteWidth: number;
+  text: ScoreTextOptions;
   staves: Staff[];
   staffMeasurementContexts: StaffMeasurementContext[];
 }): StaffVerticalBounds[] {
@@ -297,6 +327,9 @@ function measureStaffVerticalBounds({
               items[noteIndex]?.targetStaffId ?? ownerStaffId
             ) ?? staffIndex;
           mergeNoteBounds(bounds[ownerStaffIndex], note);
+          if (text.alignLyrics) {
+            collectLyricVerses(bounds[ownerStaffIndex]!, note);
+          }
         });
 
         beams.forEach((beam) => {
@@ -321,6 +354,36 @@ function measureStaffVerticalBounds({
       });
     }
   );
+  // The top stave draws the app's chord symbols, then the measure's volta,
+  // metronome mark and segno or coda above them.
+  const marksHeight = aboveStaffMarksHeight(
+    resolveAboveStaffMarks(
+      staffMeasurementContexts.map(({ measure }) => measure)
+    ),
+    text.chordSymbolHeight
+  );
+
+  bounds[0]!.top = Math.min(
+    bounds[0]!.top,
+    VEXFLOW_STAVE_TOP_LINE_OFFSET -
+      Math.max(marksHeight, text.chordSymbolHeight)
+  );
 
   return bounds;
+}
+
+/** Adds the verses of the note's aligned lyrics, which take no place in its bounds, to the staff's lines. */
+function collectLyricVerses(bounds: StaffVerticalBounds, note: VFVoiceNote) {
+  const verses = note
+    .getModifiers()
+    .filter((modifier): modifier is Lyric => modifier instanceof Lyric)
+    .map((lyric) => lyric.verse);
+
+  if (verses.length === 0) {
+    return;
+  }
+
+  bounds.lyricVerses = [
+    ...new Set([...(bounds.lyricVerses ?? []), ...verses]),
+  ].sort(compareVerses);
 }

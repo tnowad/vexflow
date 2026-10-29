@@ -12,8 +12,8 @@ import type { StemmableNote } from 'vexflow';
 
 import type {
   Clef,
-  Direction,
   KeySignature,
+  MeasureState,
   Meter,
   NoteAttachment,
   Score,
@@ -28,13 +28,15 @@ import type {
 } from '../state';
 import {
   applyDots,
-  applyMeasureDirections,
   applyNoteModifiers,
   decorateStaveNote,
+  hasNoteHeads,
   restAttachments,
 } from './noteModifiers';
 import { durationToVF, pitchToVFKey, restKeyForStaffLine } from './vfKeys';
+import { textOptions } from './constants';
 import type { DecorateItem } from './types';
+import type { LyricOptions } from './noteModifiers';
 
 export type StaffGroupLookup = {
   groupId: string;
@@ -44,6 +46,7 @@ export type StaffGroupLookup = {
 
 export interface ResolvedMeasureState {
   clef: Clef;
+  clefOctaveChange?: MeasureState['clefOctaveChange'];
   meter: Meter;
   keySignature?: KeySignature;
   tempo?: Tempo;
@@ -53,6 +56,8 @@ export type VFVoiceNote = StemmableNote;
 
 export interface MakeVFVoiceOptions {
   resolveClef?: (item: VoiceItem) => Clef;
+  /** Octaves the item's pitched notes are drawn below where their clef puts them (VexFlow's `octaveShift`); undefined = 0. */
+  resolveOctaveShift?: (item: VoiceItem) => number | undefined;
   /**
    * Precomputed attachment index; pass it when calling in a loop to avoid
    * rebuilding it on every call.
@@ -60,8 +65,8 @@ export interface MakeVFVoiceOptions {
   attachmentsByOwner?: Map<string, NoteAttachment[]>;
   /** Owning staff; on a one-line staff auto stems point up. */
   staff?: Staff;
-  /** Measure directions drawn on this voice's first drawn item. */
-  directions?: Direction[];
+  /** Lyric size and alignment; the library defaults when unset. */
+  lyrics?: LyricOptions;
   itemContext?: {
     decorateItem: DecorateItem;
     staff: Staff;
@@ -136,7 +141,9 @@ export function voiceItemToStaveNote(
   item: VoiceItem,
   clef: Clef,
   attachments?: NoteAttachment[],
-  decorate?: ItemDecorator
+  decorate?: ItemDecorator,
+  octaveShift = 0,
+  lyrics: LyricOptions = textOptions
 ): VFVoiceNote {
   if (
     item.type === 'rest' &&
@@ -151,17 +158,21 @@ export function voiceItemToStaveNote(
     return note;
   }
 
-  const note = buildStaveNote(item, clef);
+  const note = buildStaveNote(item, clef, octaveShift);
   const applied =
     (item.type === 'rest' ? restAttachments(attachments) : attachments) ?? [];
 
-  applyNoteModifiers(note, clef, applied);
+  applyNoteModifiers(note, clef, applied, octaveShift, lyrics);
   decorate?.(item, note, applied);
 
   return note;
 }
 
-function buildStaveNote(item: VoiceItem, clef: Clef): StaveNote {
+function buildStaveNote(
+  item: VoiceItem,
+  clef: Clef,
+  octaveShift: number
+): StaveNote {
   if (item.type === 'rest') {
     const note = new StaveNote({
       clef,
@@ -180,6 +191,7 @@ function buildStaveNote(item: VoiceItem, clef: Clef): StaveNote {
     keys: pitches.map(pitchToVFKey),
     duration: durationToVF(item.duration),
     stemDirection: toVFStemDirection(item.stemDirection),
+    octaveShift,
   });
 
   decorateStaveNote(note, pitches, item.duration);
@@ -211,6 +223,39 @@ function hasExplicitStemDirection(item: VoiceItem): boolean {
     item.type !== 'rest' &&
     (item.stemDirection === 'up' || item.stemDirection === 'down')
   );
+}
+
+/**
+ * VexFlow places a tuplet from its notes' stems and takes every rest to have
+ * one, but a hidden or spacer rest is a stemless `GhostNote`, whose
+ * `getStemExtents()` throws NoStem. This tuplet is placed and drawn over its
+ * drawn notes only, and not at all when it has none; every note still takes
+ * its tick multiplier.
+ */
+class DrawnNotesTuplet extends Tuplet {
+  private withDrawnNotes<T>(callback: () => T): T {
+    const notes = this.notes;
+
+    this.notes = (notes as StemmableNote[]).filter(hasNoteHeads);
+    try {
+      return callback();
+    } finally {
+      this.notes = notes;
+    }
+  }
+
+  getYPosition(): number {
+    return this.withDrawnNotes(() => super.getYPosition());
+  }
+
+  draw(): void {
+    if (!(this.notes as StemmableNote[]).some(hasNoteHeads)) {
+      this.setRendered();
+      return;
+    }
+
+    this.withDrawnNotes(() => super.draw());
+  }
 }
 
 /**
@@ -247,6 +292,9 @@ export function buildResolvedMeasureStates(
   return staff.measures.map((measure) => {
     const resolvedState: ResolvedMeasureState = {
       clef: measure.state?.clef ?? previousState?.clef ?? staff.defaultClef,
+      clefOctaveChange: measure.state?.clef
+        ? measure.state.clefOctaveChange
+        : previousState?.clefOctaveChange,
       meter:
         measure.state?.meter ?? previousState?.meter ?? score.defaults.meter,
       keySignature:
@@ -274,6 +322,8 @@ export function makeVFVoice(
 ): {
   vfVoice: VFVoice;
   notes: VFVoiceNote[];
+  /** VexFlow ticks from the measure start to each note. */
+  noteStarts: number[];
   beams: Beam[];
   tuplets: Tuplet[];
 } {
@@ -296,10 +346,11 @@ export function makeVFVoice(
       item,
       itemClef,
       attachmentsByOwner.get(item.id),
-      decorate
+      decorate,
+      options.resolveOctaveShift?.(item),
+      options.lyrics
     );
   });
-  applyMeasureDirections(notes, options.directions);
 
   const noteByItemId = new Map<string, VFVoiceNote>();
   voice.items.forEach((item, index) =>
@@ -307,7 +358,7 @@ export function makeVFVoice(
   );
 
   const tuplets = findTupletsForVoice(score, voice)
-    .map((group) => {
+    .map((group): Tuplet | null => {
       const tupletNotes = group.itemIds
         .map((id) => noteByItemId.get(id))
         .filter((note): note is StaveNote => Boolean(note));
@@ -316,7 +367,7 @@ export function makeVFVoice(
         return null;
       }
 
-      return new Tuplet(tupletNotes, {
+      return new DrawnNotesTuplet(tupletNotes, {
         numNotes: group.ratio.num,
         notesOccupied: group.ratio.den,
         bracketed: group.bracketed,
@@ -356,8 +407,16 @@ export function makeVFVoice(
         }
       : undefined;
   const beams = Beam.generateBeams(notes, beamOptions);
+  // After the tuplets, which scale their notes' ticks.
+  let tick = 0;
+  const noteStarts = notes.map((note) => {
+    const start = tick;
 
-  return { vfVoice, notes, beams, tuplets };
+    tick += note.getTicks().value();
+    return start;
+  });
+
+  return { vfVoice, notes, noteStarts, beams, tuplets };
 }
 
 /**

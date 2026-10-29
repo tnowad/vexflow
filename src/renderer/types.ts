@@ -178,6 +178,26 @@ export interface ScoreOptions {
   spacing: ScoreSpacing;
   insets: ScoreInsets;
   render: RenderOptions;
+  text: ScoreTextOptions;
+}
+
+/** Lyrics, and room for text the app draws above the staff. */
+export interface ScoreTextOptions {
+  /** Lyric font size relative to the default 10pt, default 1. Spacing and stacking use the scaled font. */
+  lyricScale: number;
+  /**
+   * Put every syllable of a verse on one baseline per system and staff,
+   * below the lowest note or mark of that staff in the system, verses
+   * stacked in order. Off (default), each syllable hangs under its note.
+   */
+  alignLyrics: boolean;
+  /**
+   * How far text the app draws above the top staff line (e.g. chord symbols
+   * from `onDrawItem`) reaches, in unscaled units; default 0. The top stave
+   * of each measure reserves it, and voltas, metronome marks and segno/coda
+   * are stacked above it.
+   */
+  chordSymbolHeight: number;
 }
 
 /**

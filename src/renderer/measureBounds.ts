@@ -10,7 +10,10 @@ import type { VFVoiceNote } from './scoreParsing';
 
 export interface StaffVerticalBounds {
   top: number;
+  /** With options.text.alignLyrics, the bottom of everything but the aligned lyrics. */
   bottom: number;
+  /** Verses of the staff's aligned lyrics in line order; unset without any. */
+  lyricVerses?: (number | undefined)[];
 }
 
 /**
