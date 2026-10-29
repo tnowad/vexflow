@@ -7,6 +7,7 @@ import type {
   Pitch,
   Voice,
   VoiceItem,
+  Volta,
 } from '../../state';
 import type { ParserState, StaffBuild } from './InternalTypes';
 import {
@@ -35,6 +36,7 @@ import {
   optionalChild,
   requiredChildText,
   requiredNumberText,
+  textOf,
   type XmlElement,
 } from './XmlOrder';
 
@@ -42,6 +44,11 @@ type VoiceCursor = {
   ownerStaffIndex: number;
   position: number;
   voice: Voice;
+};
+
+type MeasureEndings = {
+  start?: NonNullable<ParserState['openEnding']>;
+  stop?: 'stop' | 'discontinue';
 };
 
 export function parseMeasure(
@@ -61,6 +68,7 @@ export function parseMeasure(
   const voiceMapsByStaff = staves.map(() => new Map<string, Voice>());
   const voiceCursors = new Map<string, VoiceCursor>();
   const directionsByStaff = new Map<number, Direction[]>();
+  const endings: MeasureEndings = {};
   let currentPosition = 0;
 
   measure.children.forEach((child) => {
@@ -69,12 +77,23 @@ export function parseMeasure(
         applyAttributes(child, measures, staves, state);
         break;
       case 'direction': {
-        const { staffIndex, directions } = parseDirection(child, state);
+        const { staffIndex, directions, marks } = parseDirection(
+          child,
+          state,
+          currentPosition
+        );
 
         if (!measures[staffIndex]) {
           throw new MusicXmlParseError(
             `Direction references unknown staff ${(staffIndex + 1).toString()}`
           );
+        }
+
+        if (marks.tempo || marks.repetition) {
+          measures[staffIndex]!.leftModifiers = {
+            ...measures[staffIndex]!.leftModifiers,
+            ...marks,
+          };
         }
 
         directionsByStaff.set(staffIndex, [
@@ -96,6 +115,7 @@ export function parseMeasure(
         break;
       case 'barline':
         applyBarline(child, measures);
+        collectEnding(child, endings);
         break;
       case 'backup':
         currentPosition = Math.max(
@@ -124,6 +144,14 @@ export function parseMeasure(
   });
 
   finalizeMeasureVoices(measures[0]!, voiceCursors, state);
+  applyVolta(measures, endings, state);
+  // Dynamics past the last note go to the next measure's first note.
+  state.pendingDynamics.forEach((pending, staffNumber) => {
+    state.pendingDynamics.set(
+      staffNumber,
+      pending.map((dynamic) => ({ ...dynamic, position: 0 }))
+    );
+  });
 
   measures.forEach((staffMeasure, index) => {
     const directions = directionsByStaff.get(index);
@@ -177,10 +205,16 @@ function applyAttributes(
     }
 
     const mappedClef = mapClef(clef);
+    const octaveChange = numberText(clef, 'clef-octave-change');
     staff.defaultClef ??= mappedClef;
     measures[staffIndex]!.state = {
       ...measures[staffIndex]!.state,
       clef: mappedClef,
+      // VexFlow draws the 8 only on G and F clefs, and has no 15.
+      ...((mappedClef === 'treble' || mappedClef === 'bass') &&
+      (octaveChange === 1 || octaveChange === -1)
+        ? { clefOctaveChange: octaveChange }
+        : {}),
     };
   });
 
@@ -267,7 +301,16 @@ function parseNote(
       : undefined;
 
   attachPendingGraceNotes(itemId, voiceName, state);
-  applyNoteAttachments(note, itemId, staffNumber, voice.id, state, pitchIndex);
+  // A chord tone's chord has taken the dynamics that start with it.
+  applyNoteAttachments(
+    note,
+    itemId,
+    staffNumber,
+    voice.id,
+    state,
+    pitchIndex,
+    isChordTone ? undefined : currentPosition
+  );
 
   if (isChordTone) {
     return currentPosition;
@@ -557,5 +600,72 @@ function applyBarline(barline: XmlElement, measures: Measure[]) {
         endBarline: mapped.value,
       };
     }
+  });
+}
+
+/** The ending that starts and the way one stops at this measure's barlines. */
+function collectEnding(barline: XmlElement, endings: MeasureEndings) {
+  const ending = optionalChild(barline, 'ending');
+
+  if (!ending) {
+    return;
+  }
+
+  const type = attr(ending, 'type');
+
+  if (type === 'start') {
+    const number = attr(ending, 'number');
+
+    if (number === undefined) {
+      throw new MusicXmlParseError('Missing ending number');
+    }
+
+    endings.start = {
+      label: textOf(ending) || `${number}.`,
+      printed: attr(ending, 'print-object') !== 'no',
+    };
+  } else if (type === 'stop' || type === 'discontinue') {
+    endings.stop = type;
+  } else {
+    throw new MusicXmlParseError(`Unsupported ending type "${type ?? ''}"`);
+  }
+}
+
+/**
+ * Gives each measure under a printed ending its part of the volta bracket.
+ * The ending stays open in `state` from its start measure to its stop; a
+ * discontinued ending closes without a right hook.
+ */
+function applyVolta(
+  measures: Measure[],
+  endings: MeasureEndings,
+  state: ParserState
+) {
+  const ending = endings.start ?? state.openEnding;
+
+  if (!ending) {
+    return;
+  }
+
+  state.openEnding = endings.stop ? undefined : ending;
+
+  if (!ending.printed) {
+    return;
+  }
+
+  const closed = endings.stop === 'stop';
+  const type: Volta['type'] = endings.start
+    ? closed
+      ? 'begin-end'
+      : 'begin'
+    : closed
+    ? 'end'
+    : 'mid';
+
+  measures.forEach((measure) => {
+    measure.leftModifiers = {
+      ...measure.leftModifiers,
+      volta: { label: ending.label, type },
+    };
   });
 }

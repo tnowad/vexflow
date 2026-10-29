@@ -36,6 +36,7 @@ export function parsePart(
     });
 
   state.pendingGraceNotes.clear();
+  state.openEnding = undefined;
 
   const staves = builds.map(
     (staff): Staff => ({

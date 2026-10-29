@@ -199,6 +199,10 @@ export function mapBarline(barline: XmlElement):
     return { location, value: 'single' };
   }
 
+  if (barStyle === 'heavy-light' || barStyle === 'none') {
+    return { location, value: barStyle };
+  }
+
   if (!barStyle && hasChild(barline, 'ending')) {
     return undefined;
   }
@@ -261,6 +265,10 @@ function mapArticulation(name: string): Articulation | undefined {
       return name;
     case 'strong-accent':
       return 'marcato';
+    // Not drawn, but kept in the score: ScoreFlow reads them as phrase ends.
+    case 'breath-mark':
+    case 'caesura':
+      return undefined;
     default:
       throw new MusicXmlParseError(`Unsupported articulation "${name}"`);
   }

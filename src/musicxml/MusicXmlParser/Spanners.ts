@@ -22,20 +22,34 @@ export function applyNoteAttachments(
   staffNumber: string,
   voiceId: string,
   state: ParserState,
-  pitchIndex?: number
+  pitchIndex?: number,
+  notePosition?: number
 ) {
   const notations = optionalChild(note, 'notations');
   const pendingDynamics = state.pendingDynamics.get(staffNumber) ?? [];
 
-  pendingDynamics.forEach((pending, index) => {
+  const due =
+    notePosition === undefined
+      ? []
+      : pendingDynamics.filter((pending) => pending.position <= notePosition);
+
+  due.forEach(({ dynamic, placement }, index) => {
     state.attachments.push({
       id: `${itemId}-dynamic-${index.toString()}`,
       ownerId: itemId,
       type: 'dynamic',
-      ...pending,
+      dynamic,
+      placement,
     });
   });
-  state.pendingDynamics.delete(staffNumber);
+
+  const waiting = pendingDynamics.filter((pending) => !due.includes(pending));
+
+  if (waiting.length > 0) {
+    state.pendingDynamics.set(staffNumber, waiting);
+  } else {
+    state.pendingDynamics.delete(staffNumber);
+  }
 
   articulationsFromNotations(notations).forEach((articulation, index) => {
     if (pitchIndex !== undefined) {

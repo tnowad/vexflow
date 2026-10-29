@@ -17,11 +17,13 @@ export type Clef =
 export type Step = 'C' | 'D' | 'E' | 'F' | 'G' | 'A' | 'B';
 
 export type Accidental =
+  | 'bbb'
   | 'bb'
   | 'b'
   | 'n'
   | '#'
   | '##'
+  | '###'
   | 'x'
   | 'quarter-flat'
   | 'quarter-sharp';
@@ -56,7 +58,9 @@ export type Barline =
   | 'end'
   | 'repeat-begin'
   | 'repeat-end'
-  | 'final';
+  | 'final'
+  | 'heavy-light'
+  | 'none';
 
 export type Articulation =
   | 'staccato'
@@ -184,6 +188,8 @@ export interface Voice {
 
 export interface MeasureState {
   clef?: Clef;
+  /** Octave the clef transposes by (MusicXML `<clef-octave-change>`), drawn as the 8 below or above a treble or bass clef. Notes keep their pitch and are drawn an octave away from where `clef` alone puts them. Set together with `clef`. */
+  clefOctaveChange?: -1 | 1;
   meter?: Meter;
   keySignature?: KeySignature;
   tempo?: Tempo;
@@ -196,12 +202,24 @@ export interface MeasureLeftModifiers {
   showMeter?: boolean;
   /** undefined = hidden; never drawn on a percussion clef. */
   showKeySignature?: boolean;
-  /** undefined = 'single'; only 'single' and 'repeat-begin' render here. */
+  /** undefined = 'single'; only 'single', 'repeat-begin', 'heavy-light' and 'none' render here. */
   startBarline?: Barline;
+  /** Ending (volta) bracket over this measure, drawn on the top stave of the system. */
+  volta?: Volta;
+  /** Metronome mark (beat unit = bpm) drawn above this measure on the top stave of the system. */
+  tempo?: { bpm: number; beatUnit: DurationValue };
+  /** Segno or coda sign drawn above the start of this measure on the top stave of the system. */
+  repetition?: 'segno' | 'coda';
+}
+
+/** `type` says which hooks this measure's part of the bracket has: 'begin' starts it with a left hook and its label, 'end' closes it with a right hook, 'mid' is the line alone. */
+export interface Volta {
+  label: string;
+  type: 'begin' | 'mid' | 'end' | 'begin-end';
 }
 
 export interface MeasureRightModifiers {
-  /** undefined = 'single'; 'repeat-begin' draws as a single line. */
+  /** undefined = 'single'; 'repeat-begin' draws as a single line. 'none' is invisible: the next measure in the system draws no start barline either. */
   endBarline?: Barline;
 }
 
@@ -209,9 +227,14 @@ export interface TextDirection {
   id: Id;
   type: 'text';
   text: string;
-  /** undefined = 'above'; drawn on the measure's first drawn item of its
-   * first voice. */
+  /** undefined = 'above'. */
   placement?: 'above' | 'below';
+  /**
+   * Where in the measure the text applies, in whole notes from its start.
+   * Drawn at the item starting there, else between the items around it;
+   * undefined draws it on the first drawn item of the first voice.
+   */
+  position?: Fraction;
 }
 
 /** Not drawn; the tempo reaches the renderer through `MeasureState`. */
