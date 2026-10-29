@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { Gesture } from 'react-native-gesture-handler';
+import { Gesture, type GestureType } from 'react-native-gesture-handler';
 import {
   cancelAnimation,
   useAnimatedReaction,
@@ -19,6 +19,7 @@ export function useScoreScroll({
   externalScrollOffset,
   rendererType,
   scrollEnabled,
+  simultaneousGestures,
   viewportSize,
 }: {
   contentSize: RendererSize;
@@ -27,6 +28,8 @@ export function useScoreScroll({
   externalScrollOffset?: SharedValue<number>;
   rendererType: RendererType;
   scrollEnabled: boolean;
+  /** Gestures of other detectors the pan runs alongside instead of cancelling. */
+  simultaneousGestures?: readonly GestureType[];
   viewportSize: RendererSize;
 }): ScoreScrollState {
   const internalScrollOffset = useSharedValue(0);
@@ -66,10 +69,15 @@ export function useScoreScroll({
     [maxScrollValue, scrollOffset]
   );
 
+  // One finger scrolls. A second finger cancels an active pan (maxPointers),
+  // and running alongside `simultaneousGestures` keeps the pan's activation
+  // from cancelling a pinch that has begun, so the pinch can still take over.
   const panGesture = useMemo(
     () =>
       Gesture.Pan()
         .enabled(scrollEnabled)
+        .maxPointers(1)
+        .simultaneousWithExternalGesture(...(simultaneousGestures ?? []))
         .onStart(() => {
           cancelAnimation(scrollOffset);
           panStartOffset.value = scrollOffset.value;
@@ -86,7 +94,12 @@ export function useScoreScroll({
             nextMaxScroll
           );
         })
-        .onEnd((event) => {
+        .onEnd((event, success) => {
+          // A cancelled pan (a second finger landed) stops where it is instead of flinging.
+          if (!success) {
+            return;
+          }
+
           const nextMaxScroll = maxScrollValue.value;
           const velocity =
             rendererType === 'infiniteScore'
@@ -101,7 +114,14 @@ export function useScoreScroll({
                 })
               : 0;
         }),
-    [maxScrollValue, panStartOffset, rendererType, scrollEnabled, scrollOffset]
+    [
+      maxScrollValue,
+      panStartOffset,
+      rendererType,
+      scrollEnabled,
+      scrollOffset,
+      simultaneousGestures,
+    ]
   );
 
   return {

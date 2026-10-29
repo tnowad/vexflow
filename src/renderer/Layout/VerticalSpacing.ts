@@ -4,12 +4,23 @@ import {
   VEXFLOW_STAVE_BOTTOM_LINE_OFFSET,
   VEXFLOW_STAVE_TOP_LINE_OFFSET,
 } from './LayoutMetrics';
+import { alignedLyricsHeight, compareVerses } from '../noteModifiers';
 
 const STAFF_ARTIFACT_CLEARANCE = 12;
+
+/** Where a staff's aligned lyrics hang in a system, relative to the stave's y. */
+export interface StaffLyricsLayout {
+  /** Bottom of the staff's notes and marks in the system; the first line hangs below it. */
+  top: number;
+  /** Verses in line order. */
+  verses: (number | undefined)[];
+}
 
 export interface SystemVerticalLayout {
   height: number;
   staffYOffsets: number[];
+  /** Per staff; undefined for a staff without aligned lyrics. */
+  staffLyrics: (StaffLyricsLayout | undefined)[];
   visibleBottom: number;
   visibleTop: number;
 }
@@ -17,53 +28,62 @@ export interface SystemVerticalLayout {
 export function resolveSystemVerticalLayout(
   measures: MeasuredGroupMeasure[],
   staffCount: number,
-  staffGap: number
+  staffGap: number,
+  lyricScale: number
 ): SystemVerticalLayout {
-  const staffBounds = resolveStaffBounds(measures, staffCount);
+  const { staffBounds, staffLyrics } = resolveSystemStaffBounds(
+    measures,
+    staffCount,
+    lyricScale
+  );
   const rawStaffYOffsets = resolveRawStaffYOffsets(staffBounds, staffGap);
 
   return shiftBelowOrigin(
     rawStaffYOffsets,
     getVisibleTop(staffBounds, rawStaffYOffsets),
-    getVisibleBottom(staffBounds, rawStaffYOffsets)
+    getVisibleBottom(staffBounds, rawStaffYOffsets),
+    staffLyrics
   );
 }
 
 /**
- * Resolves one vertical layout shared by every system in `systems`. Each
- * inter-staff distance is the largest any system needs and the top shift
- * clears the tallest above-staff content of any system, so staves sit at the
- * same offsets in every system and all systems share one height.
+ * Resolves the vertical layouts of `systems`, one per system, sharing their
+ * staff offsets and height. Each inter-staff distance is the largest any
+ * system needs and the top shift clears the tallest above-staff content of
+ * any system, so staves sit at the same offsets in every system and all
+ * systems share one height. Each system keeps its own aligned lyric lines.
  */
-export function resolveUniformSystemVerticalLayout(
+export function resolveUniformSystemVerticalLayouts(
   systems: MeasuredGroupMeasure[][],
   staffCount: number,
-  staffGap: number
-): SystemVerticalLayout {
-  if (systems.length === 0) {
-    return resolveSystemVerticalLayout([], staffCount, staffGap);
-  }
-
-  const staffBoundsBySystem = systems.map((measures) =>
-    resolveStaffBounds(measures, staffCount)
+  staffGap: number,
+  lyricScale: number
+): SystemVerticalLayout[] {
+  const systemStaffBounds = systems.map((measures) =>
+    resolveSystemStaffBounds(measures, staffCount, lyricScale)
   );
   const rawStaffYOffsets = resolveWidestStaffYOffsets(
-    staffBoundsBySystem.map((staffBounds) =>
+    systemStaffBounds.map(({ staffBounds }) =>
       resolveRawStaffYOffsets(staffBounds, staffGap)
     )
   );
+  const rawVisibleTop = Math.min(
+    ...systemStaffBounds.map(({ staffBounds }) =>
+      getVisibleTop(staffBounds, rawStaffYOffsets)
+    )
+  );
+  const rawVisibleBottom = Math.max(
+    ...systemStaffBounds.map(({ staffBounds }) =>
+      getVisibleBottom(staffBounds, rawStaffYOffsets)
+    )
+  );
 
-  return shiftBelowOrigin(
-    rawStaffYOffsets,
-    Math.min(
-      ...staffBoundsBySystem.map((staffBounds) =>
-        getVisibleTop(staffBounds, rawStaffYOffsets)
-      )
-    ),
-    Math.max(
-      ...staffBoundsBySystem.map((staffBounds) =>
-        getVisibleBottom(staffBounds, rawStaffYOffsets)
-      )
+  return systemStaffBounds.map(({ staffLyrics }) =>
+    shiftBelowOrigin(
+      rawStaffYOffsets,
+      rawVisibleTop,
+      rawVisibleBottom,
+      staffLyrics
     )
   );
 }
@@ -71,7 +91,8 @@ export function resolveUniformSystemVerticalLayout(
 function shiftBelowOrigin(
   rawStaffYOffsets: number[],
   rawVisibleTop: number,
-  rawVisibleBottom: number
+  rawVisibleBottom: number,
+  staffLyrics: (StaffLyricsLayout | undefined)[]
 ): SystemVerticalLayout {
   const topShift = rawVisibleTop < 0 ? -rawVisibleTop : 0;
   const staffYOffsets = rawStaffYOffsets.map((offset) => offset + topShift);
@@ -81,9 +102,36 @@ function shiftBelowOrigin(
   return {
     height: Math.max(0, visibleBottom),
     staffYOffsets,
+    staffLyrics,
     visibleBottom,
     visibleTop,
   };
+}
+
+function resolveSystemStaffBounds(
+  measures: MeasuredGroupMeasure[],
+  staffCount: number,
+  lyricScale: number
+): {
+  staffBounds: StaffVerticalBounds[];
+  staffLyrics: (StaffLyricsLayout | undefined)[];
+} {
+  const contentBounds = resolveStaffBounds(measures, staffCount);
+  // Aligned lyrics hang below everything else on their staff in the system,
+  // one line per verse.
+  const staffLyrics = contentBounds.map((bounds) =>
+    bounds.lyricVerses
+      ? { top: bounds.bottom, verses: bounds.lyricVerses }
+      : undefined
+  );
+  const staffBounds = contentBounds.map((bounds) => ({
+    top: bounds.top,
+    bottom:
+      bounds.bottom +
+      alignedLyricsHeight(bounds.lyricVerses?.length ?? 0, lyricScale),
+  }));
+
+  return { staffBounds, staffLyrics };
 }
 
 function resolveStaffBounds(
@@ -101,10 +149,22 @@ function resolveStaffBounds(
       (merged, staffBounds) => ({
         top: Math.min(merged.top, staffBounds.top),
         bottom: Math.max(merged.bottom, staffBounds.bottom),
+        lyricVerses: mergeVerses(merged.lyricVerses, staffBounds.lyricVerses),
       }),
       defaultStaffBounds()
     );
   });
+}
+
+function mergeVerses(
+  left: (number | undefined)[] | undefined,
+  right: (number | undefined)[] | undefined
+): (number | undefined)[] | undefined {
+  if (!left || !right) {
+    return left ?? right;
+  }
+
+  return [...new Set([...left, ...right])].sort(compareVerses);
 }
 
 function resolveRawStaffYOffsets(

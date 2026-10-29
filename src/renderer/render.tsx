@@ -15,15 +15,30 @@ import type {
   ScoreLayoutPlan,
 } from './layout';
 import {
+  applyAboveStaffMarks,
   applyMeasureModifiers,
+  type ResolvedMeasureModifiers,
+  resolveAboveStaffMarks,
   resolveMeasureModifiers,
+  withSystemStartModifiers,
 } from './measureModifiers';
 import { indexAttachmentsByOwner, makeVFVoice } from './scoreParsing';
 import { applyFixedNoteSpacing } from './fixedNoteSpacing';
 import { itemLayoutOf } from './itemLayout';
-import { hasNoteHeads } from './noteModifiers';
+import {
+  alignedLyricBaseline,
+  applyMeasureDirections,
+  hasNoteHeads,
+  Lyric,
+  placeDirectionShifts,
+} from './noteModifiers';
 import { applyStaffLines, visibleLineYs } from './stave';
-import type { ScoreItemHooks, ScoreItemsLayout, ScoreOptions } from './types';
+import type {
+  ScoreItemHooks,
+  ScoreItemsLayout,
+  ScoreOptions,
+  ScoreTextOptions,
+} from './types';
 import type { VFVoiceNote } from './scoreParsing';
 
 /**
@@ -70,8 +85,11 @@ export function renderScore(
         attachmentsByOwner,
         {
           isFirstMeasureInSystem: measureIndex === 0,
+          isDocumentSystemStart:
+            layoutPlan.rendererType === 'document' && measureIndex === 0,
           isLastMeasureInSystem: measureIndex === measurePlans.length - 1,
           fixedNoteSpacing: options.render.fixedNoteSpacing,
+          text: options.text,
           ...hooks,
         },
         itemsLayout
@@ -95,12 +113,15 @@ type StaffRenderArtifacts = {
     setContext: (ctx: VexflowRecordingContext) => { draw: () => void };
   }>;
   vfVoices: VFVoice[];
+  directionShifts: ReturnType<typeof applyMeasureDirections>;
 };
 
 interface RenderMeasureOptions extends ScoreItemHooks {
   isFirstMeasureInSystem: boolean;
+  isDocumentSystemStart: boolean;
   isLastMeasureInSystem: boolean;
   fixedNoteSpacing: boolean;
+  text: ScoreTextOptions;
 }
 
 function renderMeasure(
@@ -127,14 +148,19 @@ function renderMeasure(
         group.resolvedStatesByStaff[staffIndex]?.[measurePlan.measureIndex];
 
       if (!measure || !resolvedState) {
-        return { vfVoices: [], voiceArtifacts: [], beams: [], tuplets: [] };
+        return {
+          vfVoices: [],
+          voiceArtifacts: [],
+          beams: [],
+          tuplets: [],
+          directionShifts: [],
+        };
       }
 
-      const voiceArtifacts = measure.voices.map((voice, voiceIndex) => ({
+      const voiceArtifacts = measure.voices.map((voice) => ({
         ...makeVFVoice(score, resolvedState.meter, resolvedState.clef, voice, {
           attachmentsByOwner,
           staff,
-          directions: voiceIndex === 0 ? measure.directions : undefined,
           itemContext: options.decorateItem
             ? {
                 decorateItem: options.decorateItem,
@@ -147,16 +173,28 @@ function renderMeasure(
               ? resolvedStateByStaffId.get(item.targetStaffId)?.clef ??
                 resolvedState.clef
               : resolvedState.clef,
+          resolveOctaveShift: (item) =>
+            (item.targetStaffId
+              ? resolvedStateByStaffId.get(item.targetStaffId) ?? resolvedState
+              : resolvedState
+            ).clefOctaveChange,
+          lyrics: options.text,
         }),
         items: voice.items,
         ownerStaffId: staff.id,
       }));
+      // Before joinVoices, which collects the notes' modifiers.
+      const directionShifts = applyMeasureDirections(
+        voiceArtifacts,
+        measure.directions
+      );
       const vfVoices = voiceArtifacts.map(({ vfVoice }) => vfVoice);
 
       formatter.joinVoices(vfVoices);
 
       return {
         vfVoices,
+        directionShifts,
         voiceArtifacts: voiceArtifacts.map(
           ({ items, notes, ownerStaffId }) => ({
             notes,
@@ -172,8 +210,26 @@ function renderMeasure(
 
   const allVoices = staffRenderArtifacts.flatMap(({ vfVoices }) => vfVoices);
 
+  const staffModifiers = group.staves.map((staff) => {
+    const modifiers = resolveMeasureModifiers(
+      staff.measures[measurePlan.measureIndex]!,
+      measurePlan.measureIndex
+    );
+    // An invisible barline is drawn by neither measure beside it.
+    const startBarline =
+      !options.isFirstMeasureInSystem &&
+      modifiers.startBarline === 'single' &&
+      staff.measures[measurePlan.measureIndex - 1]?.rightModifiers
+        ?.endBarline === 'none'
+        ? 'none'
+        : modifiers.startBarline;
+    const shown = { ...modifiers, startBarline };
+
+    return options.isDocumentSystemStart
+      ? withSystemStartModifiers(shown)
+      : shown;
+  });
   const renderedStaves = group.staves.map((staff, staffIndex) => {
-    const measure = staff.measures[measurePlan.measureIndex]!;
     const resolvedState =
       group.resolvedStatesByStaff[staffIndex]![measurePlan.measureIndex]!;
     const stave = applyStaffLines(
@@ -185,14 +241,38 @@ function renderMeasure(
       staff.lines
     );
 
-    applyMeasureModifiers(
-      stave,
-      resolveMeasureModifiers(measure, measurePlan.measureIndex),
-      resolvedState
-    );
+    applyMeasureModifiers(stave, staffModifiers[staffIndex]!, resolvedState);
+
+    if (staffIndex === 0) {
+      applyAboveStaffMarks(
+        stave,
+        resolveAboveStaffMarks(
+          group.staves.map(
+            (groupStaff) => groupStaff.measures[measurePlan.measureIndex]
+          )
+        ),
+        options.text.chordSymbolHeight
+      );
+    }
+
     stave.setContext(ctx).draw();
     return stave;
   });
+
+  if (options.isDocumentSystemStart && measurePlan.systemIndex > 0) {
+    const bracketed =
+      Boolean(group.staffGroup) &&
+      renderedStaves.length > 1 &&
+      resolveStaffGroupConnectorSymbol(group) === 'bracket';
+
+    drawBarNumber(
+      ctx,
+      renderedStaves[0]!,
+      group.staves[0]!.measures[measurePlan.measureIndex]!.number,
+      bracketed
+    );
+  }
+
   const renderedStaveByStaffId = new Map(
     group.staves.map((staff, staffIndex) => [
       staff.id,
@@ -200,7 +280,7 @@ function renderMeasure(
     ])
   );
 
-  renderStaffConnectors(ctx, group, renderedStaves, options);
+  renderStaffConnectors(ctx, group, renderedStaves, staffModifiers, options);
 
   staffRenderArtifacts.forEach(({ voiceArtifacts }) => {
     voiceArtifacts.forEach(({ items, notes, ownerStaffId }) => {
@@ -228,6 +308,19 @@ function renderMeasure(
     }
   }
 
+  staffRenderArtifacts.forEach(({ directionShifts }) =>
+    placeDirectionShifts(directionShifts)
+  );
+
+  if (options.text.alignLyrics) {
+    placeAlignedLyrics(
+      group,
+      measurePlan,
+      staffRenderArtifacts,
+      options.text.lyricScale
+    );
+  }
+
   staffRenderArtifacts.forEach(
     ({ vfVoices, voiceArtifacts, beams, tuplets }) => {
       vfVoices.forEach((voice) => voice.setRendered());
@@ -247,6 +340,57 @@ function renderMeasure(
   );
 
   collectMeasureLayout(itemsLayout, measurePlan, group.staves, renderedStaves);
+}
+
+/**
+ * Sets each aligned lyric's baseline: its verse's line under the lowest note
+ * or mark of its staff in the system, as measured.
+ */
+function placeAlignedLyrics(
+  group: GroupLayoutContext,
+  measurePlan: MeasureLayoutPlan,
+  staffRenderArtifacts: StaffRenderArtifacts[],
+  lyricScale: number
+) {
+  const staffIndexById = new Map(
+    group.staves.map((staff, staffIndex) => [staff.id, staffIndex])
+  );
+
+  staffRenderArtifacts.forEach(({ voiceArtifacts }) => {
+    voiceArtifacts.forEach(({ items, notes, ownerStaffId }) => {
+      items.forEach((item, index) => {
+        const lyrics =
+          notes[index]
+            ?.getModifiers()
+            .filter((modifier) => modifier instanceof Lyric) ?? [];
+
+        if (lyrics.length === 0) {
+          return;
+        }
+
+        const staffIndex =
+          staffIndexById.get(item.targetStaffId ?? ownerStaffId) ??
+          staffIndexById.get(ownerStaffId)!;
+        const staffLyrics = measurePlan.staffLyrics?.[staffIndex];
+
+        for (const lyric of lyrics) {
+          const line = staffLyrics?.verses.indexOf(lyric.verse) ?? -1;
+
+          if (line < 0) {
+            throw new Error(
+              `Lyric verse ${lyric.verse} of item ${item.id} has no aligned line in measure index ${measurePlan.measureIndex}`
+            );
+          }
+
+          lyric.setBaseline(
+            measurePlan.y +
+              measurePlan.staffYOffsets[staffIndex]! +
+              alignedLyricBaseline(staffLyrics!.top, line, lyricScale)
+          );
+        }
+      });
+    });
+  });
 }
 
 /**
@@ -331,10 +475,40 @@ function drawVoiceItems(
   });
 }
 
+const BAR_NUMBER_FONT = { family: 'Arial, Helvetica, sans-serif', size: 9 };
+
+// Height of a bracket's top hook above the top staff line: StaveConnector
+// draws Bravura's bracketTop glyph (0.295 em tall) 6 above the line at the
+// 30pt (40px) music font size.
+const BRACKET_HOOK_HEIGHT = 6 + 0.295 * 40;
+const BAR_NUMBER_BRACKET_GAP = 2;
+
+/**
+ * Printed bar number at the top-left of a system's top stave, as MuseScore
+ * draws it, raised above the hook of a bracket so the two don't overlap.
+ */
+function drawBarNumber(
+  ctx: VexflowRecordingContext,
+  stave: Stave,
+  number: number,
+  bracketed: boolean
+) {
+  ctx.setFont(BAR_NUMBER_FONT);
+  // 'black' resolves to the color scheme's foreground.
+  ctx.setFillStyle('black');
+
+  const y = bracketed
+    ? stave.getYForLine(0) - BRACKET_HOOK_HEIGHT - BAR_NUMBER_BRACKET_GAP
+    : stave.getYForTopText(0);
+
+  ctx.fillText(String(number), stave.getX(), y);
+}
+
 function renderStaffConnectors(
   ctx: VexflowRecordingContext,
   group: GroupLayoutContext,
   renderedStaves: Stave[],
+  staffModifiers: ResolvedMeasureModifiers[],
   options: RenderMeasureOptions
 ) {
   if (!group.staffGroup || renderedStaves.length < 2) {
@@ -359,14 +533,19 @@ function renderStaffConnectors(
     );
   }
 
-  drawStaveConnector(
-    ctx,
-    topStave,
-    bottomStave,
-    requireStaveConnectorType(StaveConnector.type.SINGLE_LEFT)
-  );
+  if (!staffModifiers.every((modifiers) => modifiers.startBarline === 'none')) {
+    drawStaveConnector(
+      ctx,
+      topStave,
+      bottomStave,
+      requireStaveConnectorType(StaveConnector.type.SINGLE_LEFT)
+    );
+  }
 
-  if (options.isLastMeasureInSystem) {
+  if (
+    options.isLastMeasureInSystem &&
+    !staffModifiers.every((modifiers) => modifiers.endBarline === 'none')
+  ) {
     drawStaveConnector(
       ctx,
       topStave,

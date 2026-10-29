@@ -1,5 +1,6 @@
 import type { SkTypefaceFontProvider } from 'react-native-skia';
 import type { SharedValue } from 'react-native-reanimated';
+import type { GestureType } from 'react-native-gesture-handler';
 import type { RenderContext, StaveNote } from 'vexflow';
 
 import type { VexflowStyleOverride } from '../base';
@@ -98,6 +99,14 @@ export interface ScoreRendererProps extends ScoreItemHooks {
   rendererType?: RendererType;
   options?: ScoreRendererOptions;
   scrollEnabled?: boolean;
+  /**
+   * Gestures in an enclosing `GestureDetector` that the scroll pan runs
+   * alongside (`simultaneousWithExternalGesture`), e.g. a pinch: the pan's
+   * activation then does not cancel them. The pan follows one finger only
+   * and is cancelled when a second one lands. Keep the array referentially
+   * stable; a new one rebuilds the pan.
+   */
+  simultaneousGestures?: readonly GestureType[];
   showScrollbars?: boolean;
   /**
    * Controlled scroll offset along the renderer's {@link ScrollAxis}. When
@@ -178,6 +187,59 @@ export interface ScoreOptions {
   spacing: ScoreSpacing;
   insets: ScoreInsets;
   render: RenderOptions;
+  layout: ScoreLayoutOptions;
+  text: ScoreTextOptions;
+}
+
+/** Lyrics, and room for text the app draws above the staff. */
+export interface ScoreTextOptions {
+  /** Lyric font size relative to the default 10pt, default 1. Spacing and stacking use the scaled font. */
+  lyricScale: number;
+  /**
+   * Put every syllable of a verse on one baseline per system and staff,
+   * below the lowest note or mark of that staff in the system, verses
+   * stacked in order. Off (default), each syllable hangs under its note.
+   */
+  alignLyrics: boolean;
+  /**
+   * How far text the app draws above the top staff line (e.g. chord symbols
+   * from `onDrawItem`) reaches, in unscaled units; default 0. The top stave
+   * of each measure reserves it, and voltas, metronome marks and segno/coda
+   * are stacked above it.
+   */
+  chordSymbolHeight: number;
+}
+
+/** Line breaking of the 'document' renderer. */
+export interface ScoreLayoutOptions {
+  /**
+   * Given each measure's width as it would be laid out in the middle of a
+   * line (excluding system-start clef/key), the extra width a measure needs
+   * when it starts a system (clef + key signature; the widest in the group),
+   * and the available line width, return the 0-based positions (in the
+   * group's measure order) of measures that start a new system. Must start
+   * with 0 and be strictly increasing. Unset, lines wrap greedily. Lines are
+   * stretched to the available width, or to `widthRatios[i]` (in (0, 1]) of
+   * it when the result gives them, but never narrower than their measures.
+   */
+  lineBreaks?: (
+    measures: readonly { measureIndex: number; width: number }[],
+    systemStartWidth: number,
+    availableWidth: number
+  ) =>
+    | readonly number[]
+    | { starts: readonly number[]; widthRatios?: readonly number[] };
+  /**
+   * Space between one system and the next, in unscaled units. Unset, it
+   * follows `spacing.staffGap` (at least 82).
+   */
+  systemGap?: number;
+  /**
+   * Measure indexes that start a page: each starts a system, below the
+   * system gap plus `PAGE_BREAK_GAP`. Greedy wrapping breaks there; a
+   * `lineBreaks` result must start a line at each, or layout throws.
+   */
+  pageBreaks?: readonly number[];
 }
 
 /**
@@ -188,6 +250,8 @@ export interface ScoreRendererOptions {
   spacing?: Partial<ScoreSpacing>;
   insets?: Partial<ScoreInsets>;
   render?: Partial<RenderOptions>;
+  layout?: ScoreLayoutOptions;
+  text?: Partial<ScoreTextOptions>;
 }
 
 /** Final formatted geometry of one rendered voice item (note, chord or rest). */
