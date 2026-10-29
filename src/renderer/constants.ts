@@ -1,4 +1,9 @@
-import type { ScoreInsets, ScoreSpacing, RenderOptions } from './types';
+import type {
+  ScoreInsets,
+  ScoreSpacing,
+  RenderOptions,
+  ScoreTextOptions,
+} from './types';
 
 export const insets: ScoreInsets = {
   top: 24,
@@ -18,4 +23,10 @@ export const renderOptions: RenderOptions = {
   scale: 1,
   debug: false,
   fixedNoteSpacing: false,
+};
+
+export const textOptions: ScoreTextOptions = {
+  lyricScale: 1,
+  alignLyrics: false,
+  chordSymbolHeight: 0,
 };

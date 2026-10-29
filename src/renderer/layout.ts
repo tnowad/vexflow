@@ -18,6 +18,7 @@ import {
 } from './scoreParsing';
 import type { MeasuredScore } from './measure';
 import type { StaffVerticalBounds } from './measureBounds';
+import type { StaffLyricsLayout } from './Layout/VerticalSpacing';
 import type {
   RendererRect,
   RendererSize,
@@ -29,6 +30,7 @@ export interface MeasuredGroupMeasure {
   groupId: string;
   measureIndex: number;
   intrinsicWidth: number;
+  systemStartWidth: number;
   measureNumbers: number[];
   staffBounds: StaffVerticalBounds[];
 }
@@ -50,6 +52,8 @@ export interface MeasureLayoutPlan {
   width: number;
   height: number;
   staffYOffsets: number[];
+  /** Aligned lyric lines of the measure's system, per staff. */
+  staffLyrics: (StaffLyricsLayout | undefined)[];
   systemIndex: number;
 }
 
@@ -180,6 +184,7 @@ function buildGroupLayoutContext(
         groupId: measure.groupId,
         measureIndex: measure.measureIndex,
         intrinsicWidth: measure.intrinsicNoteWidth,
+        systemStartWidth: measure.systemStartWidth,
         measureNumbers: measure.measureNumbers,
         staffBounds: measure.staffBounds,
       })),
@@ -196,7 +201,8 @@ function layoutInfiniteScoreGroup(
   const verticalLayout = resolveSystemVerticalLayout(
     group.measures,
     group.staves.length,
-    options.spacing.staffGap
+    options.spacing.staffGap,
+    options.text.lyricScale
   );
   const maxIntrinsicWidth = Math.max(
     ...group.measures.map((measure) => measure.intrinsicWidth),
@@ -221,6 +227,7 @@ function layoutInfiniteScoreGroup(
       width,
       height: verticalLayout.height,
       staffYOffsets: verticalLayout.staffYOffsets,
+      staffLyrics: verticalLayout.staffLyrics,
       systemIndex: 0,
     });
 
